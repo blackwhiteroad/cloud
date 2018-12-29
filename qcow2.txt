@@ -1,0 +1,501 @@
+安装kvm相关系统插件
+]# yum -y install qemu-kvm libvirt-daemao libvirt-daemon \
+libvirt-client libvirt-daemon-driver-qemu
+]# systemctl start libvirt
+ls /var/run/libvirt/libvirt-sock
+ls /usr/share/virt-manager/virtinst/connection.py
+ls /usr/share/virt-manager/virtManager/connection.py
+ls /usr/lib/python2.7/site-packages/libvirt.py
+***挂载yum源
+#查看挂载信息
+]# df -h
+文件系统        容量  已用  可用 已用% 挂载点
+/dev/sda2       118G   14G   99G   13% /
+devtmpfs        7.7G     0  7.7G    0% /dev
+tmpfs           7.7G  158M  7.6G    3% /dev/shm
+tmpfs           7.7G   34M  7.7G    1% /run
+tmpfs           7.7G     0  7.7G    0% /sys/fs/cgroup
+/dev/sda1       197G   67G  121G   36% /var/lib/libvirt/images
+/dev/loop0      3.8G  3.8G     0  100% /var/ftp/rhel7
+tmpfs           1.6G   36K  1.6G    1% /run/user/0
+#查看本地挂载源信息
+]# cd /var/ftp/rhel7/
+]# ll
+总用量 932
+dr-xr-xr-x 4 root root   2048 7月  11 2017 addons
+dr-xr-xr-x 3 root root   2048 7月  11 2017 EFI
+-r--r--r-- 1 root root   8266 4月   4 2014 EULA
+-r--r--r-- 1 root root   1455 7月  11 2017 extra_files.json
+-r--r--r-- 1 root root  18092 3月   6 2012 GPL
+dr-xr-xr-x 3 root root   2048 7月  11 2017 images
+dr-xr-xr-x 2 root root   2048 7月  11 2017 isolinux
+dr-xr-xr-x 2 root root   2048 7月  11 2017 LiveOS
+-r--r--r-- 1 root root    114 7月  11 2017 media.repo
+注释：/etc/yum.repos.d/中的baseurl=...以createrepo .(与*.rpm文件平级[同一目录])创建目录或repodata的目录为地址
+eg:
+]# cd /var/ftp/pub
+]# mkdir aaa
+]# cd aaa
+]# cp /var/ftp/rhel7/Packages/*.rpm ./
+]# vim /etc/yum.repos.d/dvd.repo
+[dvd]
+name=dvd
+baseurl=ftp://192.168.4.254/rhel7
+enabled=1
+gpgcheck=0
+
+[aaa]
+name=aaa
+baseurl=ftp://192.168.4.254/pub/aaa
+enabled=1
+gpgcheck=0
+
+]# yum clean all
+]# yum repolist
+
+***创建yum步骤：
+**挂载：mount /iso/xxx.iso /var/ftp/目录
+**配置yum路径：vim /etc/yum.repos.d/文件
+*eg:
+[dvd]
+name=dvd
+baseurl=ftp://192.168.4.254/rhel7
+enabled=1
+gpgcheck=0
+**安装vsftpd:yum -y install vsftpd
+or
+**启动vsftpd.server服务：systemctl start vsftpd.server
+**查看vsftpd.server服务：systemctl status vsftpd.server
+
+
+***安装虚拟化服务平台
+]# yum -y install qemu-kvm libvirt-daemao libvirt-daemon \
+libvirt-client libvirt-daemon-driver-qemu
+]# systemctl start libvirtd
+]# systemctl status libvirtd
+**虚拟机配置声明文件(XML文件)
+]# /etc/libvirt/qemu/
+**虚拟机的硬盘(磁盘镜像文件)
+]# /var/lib/libvirt/images/
+**console的作用：不连接对方的IP情况下，实现对虚拟机的控制
+]# virsh
+virsh # console 虚拟机名称
+注释：关闭ip的命令]# systemctl stop network
+查看ip信息：ifconfig -a
+**创建虚拟交换机配置文件
+]# cd /etc/libvirt/qemu/networks
+]# vim vbr.xml
+<network>
+  <name>vbr</name>
+  <bridge name='vbr' stp='on' delay='0'/>
+  <domain name='vbr'/>
+  <forward mode="nat"/>
+  <ip address='192.168.3.254' netmask='255.255.255.0'>
+    <dhcp>
+      <range start="192.168.3.100" end="192.168.3.200"/>
+    </dhcp>
+  </ip>
+</network>
+virsh # net-define /etc/libvirt/qemu/networks/vbr.xml
+从 vbr定义网络/etc/libvirt/qemu/networks/vbr.xml
+virsh # net-start vbr
+网络 vbr 已开始
+virsh # net-autostart vbr
+网络vbr标记为自动启动
+virsh # net-list 
+ 名称               状态     自动开始  持久
+----------------------------------------------------------
+ private1             活动     是           是
+ vbr                  活动     是           是
+#查看ip信息
+]# ifconfig
+**创建模板
+]# cd /etc/libvirt/qemu/
+[root@room9pc01 qemu]# vim node1 | 2.xml 
+<domain type='kvm'>
+  <name>node1</name>
+  <memory unit='GB'>4</memory>
+  <currentMemory unit='GB'>4</currentMemory>
+  <vcpu placement='static'>2</vcpu>
+  <os>
+    <type arch='x86_64' machine='pc'>hvm</type>
+    <boot dev='hd'/>
+    <bootmenu enable='yes'/>
+    <bios useserial='yes'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode='host-passthrough'>
+  </cpu>
+  <clock offset='localtime'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>restart</on_crash>
+  <devices>
+    <emulator>/usr/libexec/qemu-kvm</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='/var/lib/libvirt/images/node1.img'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <interface type='bridge'>
+      <source bridge='vbr'/>
+      <model type='virtio'/>
+    </interface>
+    <channel type='unix'>
+      <target type='virtio' name='org.qemu.guest_agent.0'/>
+    </channel>
+    <serial type='pty'></serial>
+    <console type='pty'>
+      <target type='serial'/>
+    </console>
+    <memballoon model='virtio'></memballoon>
+  </devices>
+</domain>
+
+
+
+***真机快速配置制作网络CentOS-1708yum源,共9591个包
+#配置ftp
+]# yum -y install vsftp
+#修改配置文件/etc/vsftpd/vsftpd.conf
+]# vim /etc/vsftpd/vsftpd.conf
+112	listen=YES
+117	listen_ipv6=no
+]# systemctl restart vsftpd
+]# systemctl enable vsftpd
+#挂载
+]# mount -t iso9660 -o loop,ro /iso/CentOS7-1708.iso /var/ftp/centos7
+#加载配置目录
+]# cd /etc/yum.repos.d
+]# vim centos_7.repo 
+[Centos_repo]
+name=CentOS packet
+enabled=1
+gpgcheck=0
+]# yum clean all
+]# yum repolist
+#禁用Selinux
+]# vim /etc/selinux/config
+8 SELINUX=disabled
+#关闭防火墙
+]# systemctl stop firewalld
+]# systemctl mask firewalld
+
+***创建虚拟机
+**创建一个qcow2的磁盘文件
+]# cd /var/lib/libvirt/images
+]# qemu-img create -f qcow2 node.img 2G
+**在virt-manager里面安装系统
+**vbr虚拟机操作界面
+*ping通网络的方法:ping www.baidu.com
+vim /etc/resolv.conf
+# Generated by NetworkManager
+nameserver 192.168.4.254
+or
+nameserver 8.8.8.8
+nameserver 202.106.196.115
+nameserver 114.114.114.114
+*查看vbr虚拟机的ip
+ip a
+*虚拟机配置yum源
+cd /etc/yum.repos.d/
+rm -rf *
+mkdir /tmp/oldrepodata
+cp * /tmp/oldrepodata/
+rm -f *
+vi local.repo
+[local_source]
+name=Local CentOS Source
+baseurl=ftp://192.168.3.254/centos7
+enalbed=1
+gpgcheck=0
+yum repolist
+**安装常用工具包
+yum install -y vim git
+**禁用Selinux
+vim /etc/selinux/config
+8 SELINUX=disabled
+**卸载防火墙
+yum remove -y firewalld-*
+reboot	//重启
+**配置网络
+git clone git://124.193.128.166/nsd1807.git
+cd nsd1807/
+]# cat ifcfg-eth0
+# Generated by dracut initrd
+DEVICE="eth0"
+ONBOOT="yes"
+NM_CONTROLLED="no"
+TYPE="Ethernet"
+BOOTPROTO="dhcp"
+#IPADDR="192.168.1.XX"
+#NETMASK="255.255.255.0"
+... ...
+]# cat /etc/sysconfig/network-scripts/ifcfg-eth0 
+# Generated by dracut initrd
+NAME="eth0"
+HWADDR="52:54:00:b3:72:01"
+ONBOOT=yes
+NETBOOT=yes
+UUID="308332e5-eee3-4516-b702-5e72aff466e2"
+IPV6INIT=yes
+BOOTPROTO=dhcp
+TYPE=Ethernet
+... ...
+]# cp /etc/sysconfig/network-scripts/ifcfg-eth0 /tmp/
+]# cat ifcfg-eth0 > /etc/sysconfig/network-scripts/ifcfg-eth0 
+]# systemctl stop NetworkManager
+]# yum remove -y NetworkManager-*
+]# reboot
+**其它配置
+#查看ifconfig软件包位置
+]# yum provides */ifconfig
+#安装ifconfig
+]# yum -y install net-tools bridge-utils lftp lrzsz
+*安装tab包
+]# yum list | grep bash
+]# yum -y install bash-completion.noarch
+*禁用空路由
+]# ip r
+default via 192.168.4.254 dev eth0 
+169.254.0.0/16 dev eth0 scope link metric 1002 
+192.168.4.0/24 dev eth0 proto kernel scope link src 192.168.4.117
+]# vim /etc/sysconfig/network
+  1 # Created by anaconda
+  2 NOZEROCONF="yes"	//增加此行
+]# systemctl restart network
+]# ip route show
+default via 192.168.4.254 dev eth0 
+192.168.4.0/24 dev eth0 proto kernel scope link src 192.168.4.117
+xxx错*打开console指令
+xxx错[root@localhost nsd1807]# cp /etc/default/grub /etc/default/oldgrub
+xxx错[root@localhost nsd1807]# cat grub > /etc/default/grub
+#重新生成内核引导文件
+]# cd /etc/default
+]# vim grub
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
+GRUB_DEFAULT=saved
+GRUB_DISABLE_SUBMENU=true
+GRUB_TERMINAL="serial console"
+GRUB_SERIAL_COMMAND="serial --unit=1 --speed=115200"
+GRUB_CMDLINE_LINUX="biosdevname=0 net.ifnames=0 console=tty0 console=ttyS0,115200"
+GRUB_DISABLE_RECOVERY="true"
+]# grub2-mkconfig -o /boot/grub2/grub.cfg
+]# reboot
+]# virsh console cloud
+*其它软件包安装
+]# yum -y install psmisc lftp
+*yum源导入公钥验证配置
+]# cd /etc/yum.repos.d/
+[root@localhost nsd1807]# lftp 192.168.4.254
+lftp 192.168.4.254:~> ls
+-rw-r--r--    1 0        0        177152000 Dec 18 08:48 RHEL7-extras.iso
+-rw-r--r--    1 0        0        3183450112 Dec 18 08:53 RHEL7OSP-10.iso
+drwxr-xr-x    8 0        0            2048 Sep 05  2017 centos
+drwxr-xr-x    2 0        0            4096 Dec 20 12:56 iso
+drwxr-xr-x    2 0        0            4096 Oct 30 19:45 pub
+dr-xr-xr-x    9 0        0            4096 Jul 11  2017 rhel7
+drwxrwxrwx    3 0        0            4096 Dec 05 09:14 share
+drwxr-xr-x    2 0        0            4096 Oct 26 08:39 笔记
+drwxr-xrwx    2 0        0            4096 Oct 25 06:52 问题
+lftp 192.168.4.254:/> cd centos/
+lftp 192.168.4.254:/centos> ls
+-rw-rw-r--    3 0        0              14 Sep 05  2017 CentOS_BuildTag
+drwxr-xr-x    3 0        0            2048 Sep 05  2017 EFI
+-rw-rw-r--    3 0        0             227 Aug 30  2017 EULA
+-rw-rw-r--    3 0        0           18009 Dec 09  2015 GPL
+drwxr-xr-x    2 0        0            2048 Sep 05  2017 LiveOS
+drwxrwxr-x    2 0        0         1585152 Sep 05  2017 Packages
+-rw-rw-r--    3 0        0            1690 Dec 09  2015 RPM-GPG-KEY-CentOS-7
+-rw-rw-r--    3 0        0            1690 Dec 09  2015 RPM-GPG-KEY-CentOS-Testing-7
+-r--r--r--    1 0        0            2883 Sep 06  2017 TRANS.TBL
+drwxr-xr-x    3 0        0            2048 Sep 06  2017 images
+drwxr-xr-x    2 0        0            2048 Sep 05  2017 isolinux
+drwxrwxr-x    2 0        0            4096 Sep 05  2017 repodata
+lftp 192.168.4.254:/centos> get RPM-GPG-KEY-CentOS-7
+1690 bytes transferred
+lftp 192.168.4.254:/centos> bye
+[root@localhost nsd1807]# mv RPM-GPG-KEY-CentOS-7 /etc/yum.repos.d/
+[root@localhost nsd1807]# cd /etc/yum.repos.d/
+[root@localhost yum.repos.d]# ls
+local.repo  RPM-GPG-KEY-CentOS-7
+[root@rhel yum.repos.d]# vim nature.repo 
+[nature]
+name=nature
+baseurl=ftp://192.168.4.254/centos
+enabled=1
+gpgcheck=1
+[root@localhost yum.repos.d]# rpm --import RPM-GPG-KEY-CentOS-7
+[root@rhel yum.repos.d]# vim nature.repo 
+[nature]
+name=nature
+baseurl=ftp://192.168.4.254/centos
+enabled=1
+gpgcheck=0
+#测试是否数字验证成功
+[root@localhost yum.repos.d]# yum -y install rsync
+#重新生成内核引导文件
+]# cd /etc/default
+]# vim grub
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
+GRUB_DEFAULT=saved
+GRUB_DISABLE_SUBMENU=true
+GRUB_TERMINAL="serial console"
+GRUB_SERIAL_COMMAND="serial --unit=1 --speed=115200"
+GRUB_CMDLINE_LINUX="biosdevname=0 net.ifnames=0 console=tty0 console=ttyS0,115200n8"
+GRUB_DISABLE_LINUX_UUID="true"
+GRUB_ENABLE_LINUX_LABEL="true"
+GRUB_DISABLE_RECOVERY="true"
+]# grub2-mkconfig -o /boot/grub2/grub.cfg
+[ 1384.082812] device-mapper: uevent: version 1.0.3
+[ 1384.085583] device-mapper: ioctl: 4.35.0-ioctl (2016-06-23) initialised: dm-devel@redhat.com
+Generating grub configuration file ...
+Found linux image: /boot/vmlinuz-3.10.0-693.el7.x86_64
+Found initrd image: /boot/initramfs-3.10.0-693.el7.x86_64.img
+Found linux image: /boot/vmlinuz-0-rescue-04d1c3ae21d24df5afe857f826ce38ec
+Found initrd image: /boot/initramfs-0-rescue-04d1c3ae21d24df5afe857f826ce38ec.img
+[ 1384.721109] xor: automatically using best checksumming function:
+[ 1384.731423]    avx       : 16900.000 MB/sec
+[ 1384.759432] raid6: sse2x1   gen()  7093 MB/s
+[ 1384.776428] raid6: sse2x2   gen()  8808 MB/s
+[ 1384.793430] raid6: sse2x4   gen() 10031 MB/s
+[ 1384.810426] raid6: avx2x1   gen() 14148 MB/s
+[ 1384.827426] raid6: avx2x2   gen() 16289 MB/s
+[ 1384.844426] raid6: avx2x4   gen() 18000 MB/s
+[ 1384.845049] raid6: using algorithm avx2x4 gen() (18000 MB/s)
+[ 1384.845828] raid6: using avx2x2 recovery algorithm
+[ 1384.910055] Btrfs loaded, crc32c=crc32c-intel
+[ 1384.919195] fuse init (API version 7.22)
+done
+
+*/ect/fstab文件中的UUID手工修改成系统设备
+[root@localhost yum.repos.d]# cat /etc/fstab 
+#
+# /etc/fstab
+# Created by anaconda on Fri Dec 21 13:49:30 2018
+#
+# Accessible filesystems, by reference, are maintained under '/dev/disk'
+# See man pages fstab(5), findfs(8), mount(8) and/or blkid(8) for more info
+#
+UUID=6811cc69-8f22-4502-816b-c63e43905452 /                       xfs     defaults        0 0
+[root@localhost yum.repos.d]# blkid	//查看UUID对应的设备
+/dev/vda1: UUID="6811cc69-8f22-4502-816b-c63e43905452" TYPE="xfs" 
+[root@localhost yum.repos.d]# vim /etc/fstab	//修正后
+  9 /dev/vda1 /                       xfs     defaults        0     0
+
+
+***安装个性化设置
+[root@localhost yum.repos.d]# yum -y install cloud-utils-growpart
+
+***清理日志信息
+#关闭虚拟机
+[root@localhost yum.repos.d]# poweroff
+#真机执行:virt-sysprep -d cloud
+yum -y install libguestfs-tools
+virt-sysprep -d cloud
+
+***自定义虚拟机(制作前端盘)
+cd /var/lib/libvirt/images/
+qemu-img create -b node.qcow2 -f qcow2 node1.img 16G
+cd nsd1807
+sed 's,node,node1,' node.xml > /etc/libvirt/qemu/node1.xml
+virsh define /etc/libvirt/qemu/node1.xml
+virsh start node1
+virsh console node1
+
+**根分区扩容(前端盘node1操作)
+#切换为英文，才能后续执行操作
+]# LANG=en_US.UTF-8
+]# /usr/bin/growpart /dev/vda 1
+**文件系统扩容
+]# /usr/sbin/xfs_growfs /
+
+编写脚本自动配置IP
+]# vim eip
+#!/bin/bash
+echo "
+# Generated by dracut initrd
+DEVICE=\"eth0\"
+ONBOOT=\"yes\"
+IPV6INIT=\"no\"
+IPV4_FAILURE_FATAL=\"no\"
+NM_CONTROLLED=\"no\"
+TYPE=\"Ethernet\"
+BOOTPROTO=\"static\"
+IPADDR=\"192.168.3.$1\"
+NETMASK=\"255.255.255.0\"
+GATEWAY=\"192.168.3.254\"
+" > /etc/sysconfig/network-scripts/ifcfg-eth0
+]# sh eip 100
+
+***node 关机
+]# virsh undefine node
+
+openstack：自动管理虚拟机网络，与network-manager冲突，与系统firewalld也冲突
+注：NTP时间服务器chrony对内显示是323，作为提供时间服务器时，对外显示为123
+***真机配置NTP时间同步服务器，给openstack服务器进行时间校正,以及DNS解析服务器
+]# yum -y install bind bind-chroot
+#修改配置文件
+]# vim /etc/named.conf
+ 13         listen-on port 53 { 192.168.3.100; };		// ip改为对应的ip
+ 14         //listen-on-v6 port 53 { ::1; };		// 不监听ipv6
+ 19         allow-query     { any; };			// 允许所有人查询
+ 32         forwarders { 114.114.114.114; };		// 在recursion yes;下新添加转发功能
+ 34         dnssec-enable no;					// dns加密相关，都改为no
+ 35         dnssec-validation no;
+]# systemctl start named
+#测试配置文件
+]# dig @192.168.3.254 A www.sohu.com
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
+GRUB_DEFAULT=saved
+GRUB_DISABLE_SUBMENU=true
+GRUB_TERMINAL_OUTPUT="console"
+GRUB_CMDLINE_LINUX="crashkernel=auto rhgb quiet net.ifnames=0 biosdevname=0"
+GRUB_DISABLE_RECOVERY="true"
